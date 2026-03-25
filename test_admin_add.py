@@ -60,7 +60,7 @@ async def test_admin_add():
     
     # Create mock event
     mock_evt = Mock()
-    mock_evt.content.body = "!ticket intake add"
+    mock_evt.content.body = "!ticket ntn_room add"
     mock_evt.room_id = "!room:example.com"
     mock_evt.sender = "@user:example.com"
     mock_evt.reply = mock_reply

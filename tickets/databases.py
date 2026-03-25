@@ -36,7 +36,6 @@ class Database:
             sa.Column("room_id", sa.String(255), nullable=False, unique=True),
             sa.Column("name", sa.String(255), nullable=False),
             sa.Column("enabled", sa.Boolean, nullable=False, default=True),
-            sa.Column("space_id", sa.String(255), nullable=True),
             sa.Column("created_at", sa.DateTime, nullable=False, default=datetime.utcnow),
         )
         
@@ -142,17 +141,24 @@ class Database:
                     except Exception as e2:
                         self.plugin.log.warning(f"Failed to clear category_id values: {e2}")
         
-        # Add space_id column to command_rooms if missing
+        # Remove space_id column from command_rooms (no longer used)
         if 'command_rooms' in inspector.get_table_names():
             columns = [col['name'] for col in inspector.get_columns('command_rooms')]
-            if 'space_id' not in columns:
-                self.plugin.log.info("Adding space_id column to command_rooms table")
+            if 'space_id' in columns:
+                self.plugin.log.info("Attempting to drop space_id column from command_rooms table")
                 try:
                     with self.engine.begin() as conn:
-                        conn.execute(sa.text('ALTER TABLE command_rooms ADD COLUMN space_id VARCHAR(255)'))
-                        self.plugin.log.info("Added space_id column to command_rooms")
+                        conn.execute(sa.text('ALTER TABLE command_rooms DROP COLUMN space_id'))
+                        self.plugin.log.info("Dropped space_id column from command_rooms")
                 except Exception as e:
-                    self.plugin.log.warning(f"Failed to add space_id column to command_rooms: {e}")
+                    self.plugin.log.warning(f"Failed to drop space_id column from command_rooms: {e}")
+                    # Fallback: clear space_id values
+                    try:
+                        with self.engine.begin() as conn:
+                            conn.execute(sa.text('UPDATE command_rooms SET space_id = NULL WHERE space_id IS NOT NULL'))
+                            self.plugin.log.info("Cleared space_id values from command_rooms")
+                    except Exception as e2:
+                        self.plugin.log.warning(f"Failed to clear space_id values: {e2}")
         
         # Add space_id column to intake_rooms if missing
         if 'intake_rooms' in inspector.get_table_names():
@@ -340,70 +346,6 @@ class Database:
             result = conn.execute(stmt)
             return result.rowcount > 0
     
-    def set_command_room_space(self, room_id: str, space_id: Optional[str]) -> bool:
-        """Set the space ID for a command room."""
-        with self.engine.begin() as conn:
-            stmt = self.command_rooms.update().where(self.command_rooms.c.room_id == room_id).values(space_id=space_id)
-            result = conn.execute(stmt)
-            if result.rowcount > 0:
-                self.plugin.log.info(f"set_command_room_space: set space {space_id} for command room {room_id}")
-            return result.rowcount > 0
-    
-    def get_command_room_space(self, room_id: str) -> Optional[str]:
-        """Get the space ID for a specific command room."""
-        with self.engine.begin() as conn:
-            stmt = sa.select([self.command_rooms.c.space_id]).where(self.command_rooms.c.room_id == room_id)
-            row = conn.execute(stmt).fetchone()
-            return row[0] if row else None
-    
-    def clear_all_command_room_spaces(self) -> int:
-        """Clear space_id from all command rooms (for rooms that no longer exist)."""
-        with self.engine.begin() as conn:
-            stmt = self.command_rooms.update().values(space_id=None)
-            result = conn.execute(stmt)
-            self.plugin.log.info(f"clear_all_command_room_spaces: cleared spaces from {result.rowcount} command rooms")
-            return result.rowcount
-    
-    def get_ticket_space_id(self) -> Optional[str]:
-        """Get the ticket space ID from any enabled command room."""
-        with self.engine.begin() as conn:
-            # First check how many command rooms have spaces configured
-            count_stmt = sa.select([sa.func.count()]).where(
-                sa.and_(
-                    self.command_rooms.c.enabled == True,
-                    self.command_rooms.c.space_id.isnot(None)
-                )
-            )
-            count_result = conn.execute(count_stmt).fetchone()
-            space_count = count_result[0] if count_result else 0
-            
-            if space_count > 1:
-                self.plugin.log.warning(f"get_ticket_space_id: {space_count} command rooms have spaces configured, selecting most recently created")
-                self.plugin.log.warning(f"To avoid confusion, consider clearing space configuration from unused command rooms with: !ticket command space clear (or clear all to clear from all command rooms)")
-                # List all spaces for debugging with creation dates
-                list_stmt = sa.select([self.command_rooms.c.space_id, self.command_rooms.c.room_id, self.command_rooms.c.created_at]).where(
-                    sa.and_(
-                        self.command_rooms.c.enabled == True,
-                        self.command_rooms.c.space_id.isnot(None)
-                    )
-                ).order_by(self.command_rooms.c.created_at.desc())
-                rows = conn.execute(list_stmt).fetchall()
-                for space_id, room_id, created_at in rows:
-                    self.plugin.log.warning(f"  - Command room {room_id}: space {space_id} (created: {created_at})")
-            
-            stmt = sa.select([self.command_rooms.c.space_id, self.command_rooms.c.room_id]).where(
-                sa.and_(
-                    self.command_rooms.c.enabled == True,
-                    self.command_rooms.c.space_id.isnot(None)
-                )
-            ).order_by(self.command_rooms.c.created_at.desc()).limit(1)
-            row = conn.execute(stmt).fetchone()
-            if row:
-                space_id, room_id = row
-                self.plugin.log.info(f"get_ticket_space_id: returning space {space_id} from command room {room_id}")
-                return space_id
-            self.plugin.log.info("get_ticket_space_id: no space configured")
-            return None
     
     # Category methods
     def add_category(self, category_id: str, name: str, description: Optional[str] = None) -> bool:
