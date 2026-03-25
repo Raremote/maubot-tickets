@@ -608,7 +608,7 @@ class TicketsHandler:
         """Check if the event is in a direct message with the bot.
 
         Detection hierarchy:
-        1. If room is ticket, intake, or command room → NOT DM
+         1. If room is ticket, New Ticket Notification, or command room → NOT DM
         2. If room has >2 members → NOT DM (group chat)
         3. If room has exactly 2 members (bot + sender):
            a. If user is admin (power level >= 100) → NOT DM (regular admin room)
@@ -620,14 +620,14 @@ class TicketsHandler:
         """
         try:
             self.log.info(f"Checking if room {evt.room_id} is DM for user {evt.sender}")
-            # First check if this room is a ticket, intake, or command room - these are not DMs
+            # First check if this room is a ticket, New Ticket Notification, or command room - these are not DMs
             ticket = await self._get_ticket_for_room(evt.room_id)
             if ticket:
                 self.log.info(f"Room {evt.room_id} is a ticket room, not DM")
                 return False
             intake_room = self.db.get_intake_room(evt.room_id)
             if intake_room:
-                self.log.info(f"Room {evt.room_id} is an intake room, not DM")
+                self.log.info(f"Room {evt.room_id} is a New Ticket Notification room, not DM")
                 return False
             command_room = self.db.get_command_room(evt.room_id)
             if command_room:
@@ -1131,15 +1131,15 @@ class TicketsHandler:
         room_id = ticket["ticket_room_id"]
         intake_room_id = ticket["intake_room_id"]
 
-        # Get ticket space ID (prefer stored ticket_space_id, then space from intake room)
+        # Get ticket space ID (prefer stored ticket_space_id, then space from New Ticket Notification room)
         parent_space_id = ticket.get("ticket_space_id")
         if parent_space_id:
             self.log.info(f"Using stored ticket space {parent_space_id} from ticket record, ticket status: {new_status}")
         else:
-            # Try to get space from intake room
+            # Try to get space from New Ticket Notification room
             parent_space_id = self.db.get_intake_room_space(intake_room_id)
             if parent_space_id:
-                self.log.info(f"Using configured ticket space {parent_space_id} from intake room {intake_room_id} (no space stored in ticket), ticket status: {new_status}")
+                self.log.info(f"Using configured ticket space {parent_space_id} from New Ticket Notification room {intake_room_id} (no space stored in ticket), ticket status: {new_status}")
             else:
                 self.log.debug(f"No ticket space configured, skipping space visibility update")
                 return False
@@ -1324,8 +1324,8 @@ class TicketsHandler:
         self.log.info(f"Found {len(unique_staff)} staff users in room {room_id}")
         return unique_staff
 
-    async def _notify_intake_room(self, ticket: Dict[str, Any], message: str, mention_staff: bool = False, html_message: Optional[str] = None) -> bool:
-        """Send a notification to the ticket's intake room.
+    async def _notify_ntn_room(self, ticket: Dict[str, Any], message: str, mention_staff: bool = False, html_message: Optional[str] = None) -> bool:
+        """Send a notification to the ticket's New Ticket Notification room.
 
         Args:
             ticket: Ticket dictionary
@@ -1335,14 +1335,14 @@ class TicketsHandler:
         """
         intake_room_id = ticket.get("intake_room_id")
         if not intake_room_id:
-            self.log.warning(f"Ticket {ticket['ticket_number']} has no intake room ID")
+            self.log.warning(f"Ticket {ticket['ticket_number']} has no New Ticket Notification room ID")
             return False
-        self.log.debug(f"Notifying intake room {intake_room_id} for ticket {ticket['ticket_number']}: {message[:100]}...")
+        self.log.debug(f"Notifying New Ticket Notification room {intake_room_id} for ticket {ticket['ticket_number']}: {message[:100]}...")
 
-        # Check if intake room still exists and is enabled
+        # Check if New Ticket Notification room still exists and is enabled
         intake_room = self.db.get_intake_room(intake_room_id)
         if not intake_room or not intake_room.get("enabled", True):
-            self.log.warning(f"Intake room {intake_room_id} not found or disabled")
+            self.log.warning(f"New Ticket Notification room {intake_room_id} not found or disabled")
             return False
 
         try:
@@ -1406,26 +1406,26 @@ class TicketsHandler:
                         content = TextMessageEventContent(msgtype=MessageType.TEXT, body=message)
                     await self.client.send_message(intake_room_id, content)
 
-            self.log.info(f"Notification sent to intake room {intake_room_id}")
+            self.log.info(f"Notification sent to New Ticket Notification room {intake_room_id}")
             return True
         except Exception as e:
-            self.log.error(f"Failed to send notification to intake room {intake_room_id}: {e}")
+            self.log.error(f"Failed to send notification to New Ticket Notification room {intake_room_id}: {e}")
             return False
 
-    async def _block_if_intake_room(self, evt: MessageEvent) -> bool:
-        """Check if command should be blocked because it's in an intake room.
+    async def _block_if_ntn_room(self, evt: MessageEvent) -> bool:
+        """Check if command should be blocked because it's in a New Ticket Notification room.
 
-        Returns True if command should be blocked (i.e., not allowed in intake room).
-        Only intake commands and help are allowed in intake rooms.
+        Returns True if command should be blocked (i.e., not allowed in New Ticket Notification room).
+        Only New Ticket Notification room commands and help are allowed in New Ticket Notification rooms.
         """
-        # Check if this room is an intake room
+        # Check if this room is a New Ticket Notification room
         intake_room = self.db.get_intake_room(evt.room_id)
         if not intake_room:
-            return False  # Not an intake room, no blocking
+            return False  # Not a New Ticket Notification room, no blocking
 
         command_text = evt.content.body.strip()
 
-        # List of allowed command patterns in intake rooms
+        # List of allowed command patterns in New Ticket Notification rooms
         allowed_patterns = [
             "!ticket ntn_room add",
             "!ticket ntn_room remove",
@@ -1449,8 +1449,8 @@ class TicketsHandler:
             if command_text.startswith(pattern):
                 return False  # Allowed
 
-        # Block all other commands in intake rooms
-        self.log.info(f"Blocking command '{command_text}' in intake room {evt.room_id}")
+        # Block all other commands in New Ticket Notification rooms
+        self.log.info(f"Blocking command '{command_text}' in New Ticket Notification room {evt.room_id}")
         await evt.reply(
             "❌ This command cannot be used in a New Ticket Notification room.\n\n"
             "New Ticket Notification rooms are only for receiving ticket notifications. "
@@ -1459,11 +1459,11 @@ class TicketsHandler:
         )
         return True
 
-    async def _block_if_command_room_for_intake_commands(self, evt: MessageEvent) -> bool:
-        """Check if intake admin commands should be blocked because they're in a command room.
+    async def _block_if_command_room_for_ntn_commands(self, evt: MessageEvent) -> bool:
+        """Check if New Ticket Notification room admin commands should be blocked because they're in a command room.
 
-        Returns True if command should be blocked (i.e., intake admin commands not allowed in command rooms).
-        Intake room management should be done in intake rooms or regular rooms, not command rooms.
+        Returns True if command should be blocked (i.e., New Ticket Notification room admin commands not allowed in command rooms).
+        New Ticket Notification room management should be done in New Ticket Notification rooms or regular rooms, not command rooms.
         """
         # Check if this room is a command room
         command_room = self.db.get_command_room(evt.room_id)
@@ -1472,8 +1472,8 @@ class TicketsHandler:
 
         command_text = evt.content.body.strip()
 
-        # List of intake admin command patterns to block in command rooms
-        intake_command_patterns = [
+        # List of New Ticket Notification admin command patterns to block in command rooms
+        ntn_command_patterns = [
             "!ticket ntn_room add",
             "!ticket ntn_room remove",
             "!ticket ntn_room list",
@@ -1484,7 +1484,7 @@ class TicketsHandler:
 
         # Also block the parent command "!ticket ntn_room" (without subcommand)
         if command_text == "!ticket ntn_room":
-            self.log.info(f"Blocking intake admin command '{command_text}' in command room {evt.room_id}")
+            self.log.info(f"Blocking New Ticket Notification admin command '{command_text}' in command room {evt.room_id}")
             await evt.reply(
                 "❌ New Ticket Notification room management commands cannot be used in a command room.\n\n"
                 "New Ticket Notification rooms are for receiving ticket notifications only. "
@@ -1494,10 +1494,10 @@ class TicketsHandler:
             )
             return True
 
-        # Check if command starts with any intake admin pattern
-        for pattern in intake_command_patterns:
+        # Check if command starts with any New Ticket Notification admin pattern
+        for pattern in ntn_command_patterns:
             if command_text.startswith(pattern):
-                self.log.info(f"Blocking intake admin command '{command_text}' in command room {evt.room_id}")
+                self.log.info(f"Blocking New Ticket Notification admin command '{command_text}' in command room {evt.room_id}")
                 await evt.reply(
                     "❌ New Ticket Notification room management commands cannot be used in a command room.\n\n"
                     "New Ticket Notification rooms are for receiving ticket notifications only. "
@@ -1547,12 +1547,12 @@ class TicketsHandler:
     async def ticket_command(self, evt: MessageEvent) -> None:
         self.log.info(f"Ticket command triggered: {evt.content.body}")
 
-        # Block if in intake room (except allowed commands)
-        if await self._block_if_intake_room(evt):
+        # Block if in New Ticket Notification room (except allowed commands)
+        if await self._block_if_ntn_room(evt):
             return
 
-        # Block intake admin commands in command rooms
-        if await self._block_if_command_room_for_intake_commands(evt):
+        # Block New Ticket Notification admin commands in command rooms
+        if await self._block_if_command_room_for_ntn_commands(evt):
             return
 
         # Show help when base command is used
@@ -1561,37 +1561,37 @@ class TicketsHandler:
     # Admin subcommands (admin only)
 
 
-    @ticket_command.subcommand("ntn_room", help="Manage New Ticket Notification rooms (intake rooms)")
-    async def intake(self, evt: MessageEvent) -> None:
+    @ticket_command.subcommand("ntn_room", help="Manage New Ticket Notification rooms (admin only)")
+    async def ntn_room(self, evt: MessageEvent) -> None:
         self.log.info(f"Admin intake command triggered: {evt.content.body}")
 
-        # Block if in intake room (except allowed commands)
-        if await self._block_if_intake_room(evt):
+        # Block if in New Ticket Notification room (except allowed commands)
+        if await self._block_if_ntn_room(evt):
             return
 
-        # Block intake admin commands in command rooms
-        if await self._block_if_command_room_for_intake_commands(evt):
+        # Block New Ticket Notification admin commands in command rooms
+        if await self._block_if_command_room_for_ntn_commands(evt):
             return
 
         await evt.reply(
-            "New Ticket Notification room management commands:\n"
-            "• `!ticket ntn_room add` - Add this room as a New Ticket Notification room\n"
-            "• `!ticket ntn_room remove [all]` - Remove this room (or all) from New Ticket Notification rooms\n"
-            "• `!ticket ntn_room list` - List all New Ticket Notification rooms\n"
-            "• `!ticket ntn_room enable` - Enable this New Ticket Notification room\n"
-            "• `!ticket ntn_room disable` - Disable this New Ticket Notification room\n"
-            "• `!ticket ntn_room tris [set|unset|unset all|debug|fix]` - Ticket Room Intake Space: Configure space where new ticket rooms will be added (unset to detach from spaces)\n"
+            "## New Ticket Notification Room Commands (Admin only - power level 100):\n\n"
+            "- `!ticket ntn_room add` - Add this room as a New Ticket Notification room\n"
+            "- `!ticket ntn_room remove [all]` - Remove this room (or all) from New Ticket Notification rooms\n"
+            "- `!ticket ntn_room list` - List all New Ticket Notification rooms\n"
+            "- `!ticket ntn_room enable` - Enable this New Ticket Notification room\n"
+            "- `!ticket ntn_room disable` - Disable this New Ticket Notification room\n"
+            "- `!ticket ntn_room tris [set|unset|unset all|debug|fix]` - Ticket Room Intake Space: Configure space where new ticket rooms will be added (unset to detach from spaces)\n"
         )
-    @intake.subcommand("add", help="Add this room as a New Ticket Notification room")
+    @ntn_room.subcommand("add", help="Add this room as a New Ticket Notification room")
     async def admin_add(self, evt: MessageEvent) -> None:
         self.log.info(f"Admin add command triggered: {evt.content.body}")
 
-        # Block if in intake room (except allowed commands)
-        if await self._block_if_intake_room(evt):
+        # Block if in New Ticket Notification room (except allowed commands)
+        if await self._block_if_ntn_room(evt):
             return
 
-        # Block intake admin commands in command rooms
-        if await self._block_if_command_room_for_intake_commands(evt):
+        # Block New Ticket Notification admin commands in command rooms
+        if await self._block_if_command_room_for_ntn_commands(evt):
             return
 
         # Check if this is a direct message (admin commands should not work in DMs)
@@ -1608,7 +1608,7 @@ class TicketsHandler:
         if not await self.ensure_admin(evt):
             return
 
-        # Check if room already registered as intake room
+        # Check if room already registered as New Ticket Notification room
         existing_by_room = self.db.get_intake_room(evt.room_id)
         if existing_by_room:
             await evt.reply("❌ This room is already registered as a New Ticket Notification room.")
@@ -1630,7 +1630,7 @@ class TicketsHandler:
             )
             return
 
-        # Store pending intake room data (name will be generated after category selection)
+        # Store pending New Ticket Notification room data (name will be generated after category selection)
         pending_data = {
             "type": "intake_room",
             "room_id": evt.room_id,
@@ -1638,7 +1638,7 @@ class TicketsHandler:
         self._set_pending_ticket(evt, pending_data)
 
         # List categories for user to choose (including "all" option)
-        category_list = "## Select a category for this intake room:\n\n"
+        category_list = "## Select a category for this New Ticket Notification room:\n\n"
         # Add "all" option first
         category_list += "0. **All Categories** (`all`) - Receive notifications for all ticket categories\n\n"
 
@@ -1656,7 +1656,7 @@ class TicketsHandler:
 
         await evt.reply(category_list)
 
-    @intake.subcommand("remove", help="Remove this room (or all) from New Ticket Notification rooms")
+    @ntn_room.subcommand("remove", help="Remove this room (or all) from New Ticket Notification rooms")
     @command.argument("scope", label="scope", required=False)
     async def admin_remove(self, evt: MessageEvent, scope: Optional[str] = None) -> None:
         self.log.info(f"Admin remove command triggered: {evt.content.body}")
@@ -1665,12 +1665,12 @@ class TicketsHandler:
 
         # For "all" operation, allow from any room type
         if not is_all_operation:
-            # Block if in intake room (except allowed commands)
-            if await self._block_if_intake_room(evt):
+            # Block if in New Ticket Notification room (except allowed commands)
+            if await self._block_if_ntn_room(evt):
                 return
 
-            # Block intake admin commands in command rooms
-            if await self._block_if_command_room_for_intake_commands(evt):
+            # Block New Ticket Notification admin commands in command rooms
+            if await self._block_if_command_room_for_ntn_commands(evt):
                 return
 
         # Check if this is a direct message (admin commands should not work in DMs)
@@ -1690,9 +1690,9 @@ class TicketsHandler:
             return
 
         if is_all_operation:
-            # Remove all intake rooms and their spaces
+            # Remove all New Ticket Notification rooms and their spaces
             removed_count = self.db.remove_all_intake_rooms()
-            # Also clear all intake room spaces
+            # Also clear all New Ticket Notification room spaces
             cleared_count = self.db.clear_all_intake_room_spaces()
             await evt.reply(f"✅ Removed all New Ticket Notification rooms ({removed_count} rooms removed) and cleared {cleared_count} space configurations.")
         else:
@@ -1703,16 +1703,16 @@ class TicketsHandler:
             else:
                 await evt.reply("❌ This room is not registered as a New Ticket Notification room.")
 
-    @intake.subcommand("list", help="List all New Ticket Notification rooms")
+    @ntn_room.subcommand("list", help="List all New Ticket Notification rooms")
     async def admin_list(self, evt: MessageEvent) -> None:
         self.log.info(f"Admin list command triggered: {evt.content.body}")
 
-        # Block if in intake room (except allowed commands)
-        if await self._block_if_intake_room(evt):
+        # Block if in New Ticket Notification room (except allowed commands)
+        if await self._block_if_ntn_room(evt):
             return
 
-        # Block intake admin commands in command rooms
-        if await self._block_if_command_room_for_intake_commands(evt):
+        # Block New Ticket Notification admin commands in command rooms
+        if await self._block_if_command_room_for_ntn_commands(evt):
             return
 
         # Check if this is a direct message (admin commands should not work in DMs)
@@ -1744,16 +1744,16 @@ class TicketsHandler:
 
         await evt.reply(response)
 
-    @intake.subcommand("enable", help="Enable this New Ticket Notification room")
+    @ntn_room.subcommand("enable", help="Enable this New Ticket Notification room")
     async def admin_enable(self, evt: MessageEvent) -> None:
         self.log.info(f"Admin enable command triggered: {evt.content.body}")
 
-        # Block if in intake room (except allowed commands)
-        if await self._block_if_intake_room(evt):
+        # Block if in New Ticket Notification room (except allowed commands)
+        if await self._block_if_ntn_room(evt):
             return
 
-        # Block intake admin commands in command rooms
-        if await self._block_if_command_room_for_intake_commands(evt):
+        # Block New Ticket Notification admin commands in command rooms
+        if await self._block_if_command_room_for_ntn_commands(evt):
             return
 
         # Check if this is a direct message (admin commands should not work in DMs)
@@ -1776,16 +1776,16 @@ class TicketsHandler:
         else:
             await evt.reply("❌ This room is not registered as a New Ticket Notification room.")
 
-    @intake.subcommand("disable", help="Disable this New Ticket Notification room")
+    @ntn_room.subcommand("disable", help="Disable this New Ticket Notification room")
     async def admin_disable(self, evt: MessageEvent) -> None:
         self.log.info(f"Admin disable command triggered: {evt.content.body}")
 
-        # Block if in intake room (except allowed commands)
-        if await self._block_if_intake_room(evt):
+        # Block if in New Ticket Notification room (except allowed commands)
+        if await self._block_if_ntn_room(evt):
             return
 
-        # Block intake admin commands in command rooms
-        if await self._block_if_command_room_for_intake_commands(evt):
+        # Block New Ticket Notification admin commands in command rooms
+        if await self._block_if_command_room_for_ntn_commands(evt):
             return
 
         # Check if this is a direct message (admin commands should not work in DMs)
@@ -1808,7 +1808,7 @@ class TicketsHandler:
         else:
             await evt.reply("❌ This room is not registered as a New Ticket Notification room.")
 
-    @intake.subcommand("tris", help="Ticket Room Intake Space: Configure space where new ticket rooms will be added (unset to detach from spaces)")
+    @ntn_room.subcommand("tris", help="Ticket Room Intake Space: Configure space where new ticket rooms will be added (unset to detach from spaces)")
     @command.argument("action", label="action", required=False, pass_raw=True)
     async def admin_intake_tris(self, evt: MessageEvent, action: Optional[str] = None) -> None:
         self.log.info(f"Admin tris (ticket room intake space) command triggered: {evt.content.body}")
@@ -1822,8 +1822,8 @@ class TicketsHandler:
 
         # For "unset all" operation, allow from any room type
         if not is_unset_all:
-            # Block if in command room (intake admin commands not allowed in command rooms)
-            if await self._block_if_command_room_for_intake_commands(evt):
+            # Block if in command room (New Ticket Notification admin commands not allowed in command rooms)
+            if await self._block_if_command_room_for_ntn_commands(evt):
                 return
 
         # Check if this is a direct message (admin commands should not work in DMs)
@@ -1844,7 +1844,7 @@ class TicketsHandler:
 
         # For "unset all" operation, don't require the room to be an intake room
         if not is_unset_all:
-            # Check if this room is an intake room
+        # Check if this room is a New Ticket Notification room
             intake_room = self.db.get_intake_room(evt.room_id)
             if not intake_room:
                 await evt.reply("❌ This room is not registered as a New Ticket Notification room.")
@@ -2352,13 +2352,13 @@ class TicketsHandler:
 
             if this_space:
                 if is_room_space:
-                    response += f"**This intake room is a space:** `{this_space}`\n"
+                    response += f"**This New Ticket Notification room is a space:** `{this_space}`\n"
                     response += "You can set this space for new ticket rooms with: `!ticket ntn_room tris set`\n"
                 else:
-                    response += f"**This intake room is in space:** `{this_space}`\n"
+                    response += f"**This New Ticket Notification room is in space:** `{this_space}`\n"
                     response += "You can set this space for new ticket rooms with: `!ticket ntn_room tris set`\n"
             else:
-                response += "**This intake room is not a space and not in a space.**\n"
+                response += "**This New Ticket Notification room is not a space and not in a space.**\n"
                 response += "**Options to set a space for new ticket rooms:**\n"
                 response += "1. Add this room to a space (as a child room)\n"
                 response += "2. Make this room a space (change room type to space)\n"
@@ -2367,29 +2367,28 @@ class TicketsHandler:
             response += "\nUse `!ticket ntn_room tris debug` for detailed diagnostics or `!ticket ntn_room tris fix` to repair SPACE_PARENT events."
 
             if this_intake_room_space:
-                response += "\nTo detach new ticket rooms from spaces: `!ticket ntn_room tris unset` (or `unset all` to detach from all intake rooms)"
+                response += "\nTo detach new ticket rooms from spaces: `!ticket ntn_room tris unset` (or `unset all` to detach from all New Ticket Notification rooms)"
 
             await evt.reply(response)
             return
         else:
             await evt.reply("❌ Unknown action. Use `set`, `unset`, `unset all`, `debug`, `fix`, or no action to show current configuration.")
 
-    @ticket_command.subcommand("command_room", help="Manage command rooms")
+    @ticket_command.subcommand("command_room", help="Manage command rooms (admin only)")
     async def command_room(self, evt: MessageEvent) -> None:
         self.log.info(f"Admin command room command triggered: {evt.content.body}")
 
-        # Block if in intake room (except allowed commands)
-        if await self._block_if_intake_room(evt):
+        # Block if in New Ticket Notification room (except allowed commands)
+        if await self._block_if_ntn_room(evt):
             return
 
         await evt.reply(
-            "Command room management commands:\n"
-            "• `!ticket command_room add` - Mark this room as a command room\n"
-            "• `!ticket command_room remove [all]` - Remove this room (or all) from command rooms\n"
-            "• `!ticket command_room list` - List all command rooms\n"
-            "• `!ticket command_room enable` - Enable this command room\n"
-            "• `!ticket command_room disable` - Disable this command room\n"
-
+            "## Command Room Commands (Admin only - power level 100):\n\n"
+            "- `!ticket command_room add` - Mark this room as a command room\n"
+            "- `!ticket command_room remove [all]` - Remove this room (or all) from command rooms\n"
+            "- `!ticket command_room list` - List all command rooms\n"
+            "- `!ticket command_room enable` - Enable this command room\n"
+            "- `!ticket command_room disable` - Disable this command room\n"
         )
 
     @command_room.subcommand("add", help="Mark this room as a command room")
@@ -2397,12 +2396,12 @@ class TicketsHandler:
         self.log.info(f"Admin command add command triggered: {evt.content.body}")
         self.log.info("Admin command add starting processing")
 
-        # Block if in intake room (except allowed commands)
-        if await self._block_if_intake_room(evt):
+        # Block if in New Ticket Notification room (except allowed commands)
+        if await self._block_if_ntn_room(evt):
             return
 
-        # Block intake admin commands in command rooms
-        if await self._block_if_command_room_for_intake_commands(evt):
+        # Block New Ticket Notification admin commands in command rooms
+        if await self._block_if_command_room_for_ntn_commands(evt):
             return
 
         await evt.reply("🔄 Processing admin command add command...")
@@ -2427,7 +2426,7 @@ class TicketsHandler:
             await evt.reply("❌ This room is already registered as a command room.")
             return
 
-        # Check if room is already an intake room (prevent dual registration)
+        # Check if room is already a New Ticket Notification room (prevent dual registration)
         existing_intake_room = self.db.get_intake_room(evt.room_id)
         if existing_intake_room:
             await evt.reply("❌ This room is already registered as a New Ticket Notification room. A room cannot be both a command room and a New Ticket Notification room.")
@@ -2463,8 +2462,8 @@ class TicketsHandler:
 
         # For "all" operation, allow from any room type
         if not is_all_operation:
-            # Block if in intake room (except allowed commands)
-            if await self._block_if_intake_room(evt):
+            # Block if in New Ticket Notification room (except allowed commands)
+            if await self._block_if_ntn_room(evt):
                 return
 
         # Check if this is a direct message (admin commands should not work in DMs)
@@ -2499,8 +2498,8 @@ class TicketsHandler:
     async def admin_command_list(self, evt: MessageEvent) -> None:
         self.log.info(f"Admin command list command triggered: {evt.content.body}")
 
-        # Block if in intake room (except allowed commands)
-        if await self._block_if_intake_room(evt):
+        # Block if in New Ticket Notification room (except allowed commands)
+        if await self._block_if_ntn_room(evt):
             return
 
         # Check if this is a direct message (admin commands should not work in DMs)
@@ -2535,8 +2534,8 @@ class TicketsHandler:
     async def admin_command_enable(self, evt: MessageEvent) -> None:
         self.log.info(f"Admin command enable command triggered: {evt.content.body}")
 
-        # Block if in intake room (except allowed commands)
-        if await self._block_if_intake_room(evt):
+        # Block if in New Ticket Notification room (except allowed commands)
+        if await self._block_if_ntn_room(evt):
             return
 
         # Check if this is a direct message (admin commands should not work in DMs)
@@ -2563,8 +2562,8 @@ class TicketsHandler:
     async def admin_command_disable(self, evt: MessageEvent) -> None:
         self.log.info(f"Admin command disable command triggered: {evt.content.body}")
 
-        # Block if in intake room (except allowed commands)
-        if await self._block_if_intake_room(evt):
+        # Block if in New Ticket Notification room (except allowed commands)
+        if await self._block_if_ntn_room(evt):
             return
 
         # Check if this is a direct message (admin commands should not work in DMs)
@@ -2587,19 +2586,19 @@ class TicketsHandler:
         else:
             await evt.reply("❌ This room is not registered as a command room.")
 
-    @ticket_command.subcommand("category", help="Manage ticket categories")
+    @ticket_command.subcommand("category", help="Manage ticket categories (admin only)")
     async def category(self, evt: MessageEvent) -> None:
         self.log.info(f"Admin category command triggered: {evt.content.body}")
 
-        # Block if in intake room (except allowed commands)
-        if await self._block_if_intake_room(evt):
+        # Block if in New Ticket Notification room (except allowed commands)
+        if await self._block_if_ntn_room(evt):
             return
 
         await evt.reply(
-            "Category commands:\n"
-            "• `!ticket category add <category_id> <name> [description]` - Add a new category\n"
-            "• `!ticket category remove <category_id>` - Remove a category\n"
-            "• `!ticket category list` - List all categories\n"
+            "## Category Commands (Admin only - power level 100):\n\n"
+            "- `!ticket category add <category_id> <name> [description]` - Add a new category\n"
+            "- `!ticket category remove <category_id>` - Remove a category\n"
+            "- `!ticket category list` - List all categories\n"
         )
 
     @category.subcommand("add", help="Add a new category")
@@ -2607,8 +2606,8 @@ class TicketsHandler:
     async def admin_category_add(self, evt: MessageEvent, details: str) -> None:
         self.log.info(f"Admin category add command triggered: {evt.content.body}")
 
-        # Block if in intake room (except allowed commands)
-        if await self._block_if_intake_room(evt):
+        # Block if in New Ticket Notification room (except allowed commands)
+        if await self._block_if_ntn_room(evt):
             return
 
         # Check if this is a direct message (admin commands should not work in DMs)
@@ -2632,7 +2631,7 @@ class TicketsHandler:
         name = parts[1]
         description = parts[2] if len(parts) > 2 else None
 
-        # Reserve 'all' as special category ID for intake rooms
+        # Reserve 'all' as special category ID for New Ticket Notification rooms
         if category_id == "all":
             await evt.reply("❌ Category ID 'all' is reserved for New Ticket Notification rooms that receive notifications for all categories.")
             return
@@ -2653,8 +2652,8 @@ class TicketsHandler:
     async def admin_category_remove(self, evt: MessageEvent, category_id: str) -> None:
         self.log.info(f"Admin category remove command triggered: {evt.content.body}")
 
-        # Block if in intake room (except allowed commands)
-        if await self._block_if_intake_room(evt):
+        # Block if in New Ticket Notification room (except allowed commands)
+        if await self._block_if_ntn_room(evt):
             return
 
         # Check if this is a direct message (admin commands should not work in DMs)
@@ -2683,8 +2682,8 @@ class TicketsHandler:
     async def admin_category_list(self, evt: MessageEvent) -> None:
         self.log.info(f"Admin category list command triggered: {evt.content.body}")
 
-        # Block if in intake room (except allowed commands)
-        if await self._block_if_intake_room(evt):
+        # Block if in New Ticket Notification room (except allowed commands)
+        if await self._block_if_ntn_room(evt):
             return
 
         # Check if this is a direct message (admin commands should not work in DMs)
@@ -2718,8 +2717,8 @@ class TicketsHandler:
     async def ticket_search(self, evt: MessageEvent, filters: Optional[str] = None) -> None:
         self.log.info(f"Ticket search command triggered: {evt.content.body}")
 
-        # Block if in intake room (except allowed commands)
-        if await self._block_if_intake_room(evt):
+        # Block if in New Ticket Notification room (except allowed commands)
+        if await self._block_if_ntn_room(evt):
             return
 
         # Check if this is a direct message (search commands should not work in DMs)
@@ -2859,8 +2858,8 @@ class TicketsHandler:
     async def ticket_create(self, evt: MessageEvent, details: str) -> None:
         self.log.info(f"Ticket create command triggered: {evt.content.body}")
 
-        # Block if in intake room (except allowed commands)
-        if await self._block_if_intake_room(evt):
+        # Block if in New Ticket Notification room (except allowed commands)
+        if await self._block_if_ntn_room(evt):
             return
 
         # Check if this is a direct message with the bot
@@ -2879,7 +2878,7 @@ class TicketsHandler:
             await evt.reply("❌ This command cannot be used in a ticket room. Please use a direct message with the bot.")
             return
 
-        # Ensure this is not an intake room
+        # Ensure this is not a New Ticket Notification room
         intake_room = self.db.get_intake_room(evt.room_id)
         if intake_room:
             await evt.reply("❌ This command cannot be used in a New Ticket Notification room. Please use a direct message with the bot.")
@@ -2911,14 +2910,14 @@ class TicketsHandler:
             )
             return
 
-        # Check that at least one enabled intake room exists
+        # Check that at least one enabled New Ticket Notification room exists
         try:
             intake_rooms = self.db.get_all_intake_rooms()
             enabled_intake_rooms = [r for r in intake_rooms if r.get("enabled", True)]
 
             if not enabled_intake_rooms:
                 await evt.reply(
-                    "❌ No intake rooms are configured for ticket notifications.\n\n"
+                     "❌ No New Ticket Notification rooms are configured for ticket notifications.\n\n"
                     "**An admin needs to:**\n"
                     "1. Go to a support room\n"
                     "2. Run: `!ticket ntn_room add`\n"
@@ -2930,7 +2929,7 @@ class TicketsHandler:
             await evt.reply("❌ Database error. Please try again later.")
             return
 
-        # Store pending ticket data (intake room will be selected after category selection)
+        # Store pending ticket data (New Ticket Notification room will be selected after category selection)
         pending_data = {
             "type": "ticket",
             "title": title,
@@ -2958,8 +2957,8 @@ class TicketsHandler:
     async def ticket_my(self, evt: MessageEvent, status: Optional[str] = None) -> None:
         self.log.info(f"Ticket my command triggered: {evt.content.body}")
 
-        # Block if in intake room (except allowed commands)
-        if await self._block_if_intake_room(evt):
+        # Block if in New Ticket Notification room (except allowed commands)
+        if await self._block_if_ntn_room(evt):
             return
 
         # Check if this is a direct message with the bot
@@ -2978,7 +2977,7 @@ class TicketsHandler:
             await evt.reply("❌ This command cannot be used in a ticket room. Please use a direct message with the bot.")
             return
 
-        # Ensure this is not an intake room
+        # Ensure this is not a New Ticket Notification room
         intake_room = self.db.get_intake_room(evt.room_id)
         if intake_room:
             await evt.reply("❌ This command cannot be used in a New Ticket Notification room. Please use a direct message with the bot.")
@@ -3090,8 +3089,8 @@ class TicketsHandler:
     async def ticket_assign(self, evt: MessageEvent, args: str) -> None:
         self.log.info(f"Ticket assign command triggered: {evt.content.body}")
 
-        # Block if in intake room (except allowed commands)
-        if await self._block_if_intake_room(evt):
+        # Block if in New Ticket Notification room (except allowed commands)
+        if await self._block_if_ntn_room(evt):
             return
 
         # Parse arguments
@@ -3099,8 +3098,8 @@ class TicketsHandler:
         if not ticket_number:
             await evt.reply("❌ Invalid command syntax. Usage:\n"
                            "`!ticket assign TICKET-XXXX [@user]` (must be used in any enabled command room)\n"
-                           "• `!ticket assign TICKET-XXXX` - assign yourself\n"
-                           "• `!ticket assign TICKET-XXXX @user` - assign specific user")
+                           "- `!ticket assign TICKET-XXXX` - assign yourself (moderator+)\n"
+                           "- `!ticket assign TICKET-XXXX @user` - assign specific user (admin only)")
             return
 
         # Get ticket by number
@@ -3227,7 +3226,7 @@ class TicketsHandler:
                 if intake_room_id and not in_intake_room:
                     self.log.debug(f"Sending notification to intake room {intake_room_id} (not in intake room)")
                 self.log.debug(f"Sending notification to intake room {intake_room_id} (not in intake room)")
-                await self._notify_intake_room(ticket, intake_plain_msg, mention_staff=False, html_message=intake_html_msg)
+                await self._notify_ntn_room(ticket, intake_plain_msg, mention_staff=False, html_message=intake_html_msg)
 
             # Send reply in current room (if not already covered by notifications)
             # If we're in ticket room, we already sent notification, so skip reply
@@ -3246,8 +3245,8 @@ class TicketsHandler:
     async def ticket_unassign(self, evt: MessageEvent, args: str) -> None:
         self.log.info(f"Ticket unassign command triggered: {evt.content.body}")
 
-        # Block if in intake room (except allowed commands)
-        if await self._block_if_intake_room(evt):
+        # Block if in New Ticket Notification room (except allowed commands)
+        if await self._block_if_ntn_room(evt):
             return
 
         # Parse arguments
@@ -3255,9 +3254,9 @@ class TicketsHandler:
         if not ticket_number:
             await evt.reply("❌ Invalid command syntax. Usage:\n"
                            "`!ticket unassign TICKET-XXXX [@user|all]` (must be used in any enabled command room)\n"
-                           "• `!ticket unassign TICKET-XXXX` - unassign yourself\n"
-                           "• `!ticket unassign TICKET-XXXX @user` - unassign specific user\n"
-                           "• `!ticket unassign TICKET-XXXX all` - unassign all assignees")
+                           "- `!ticket unassign TICKET-XXXX` - unassign yourself (moderator+)\n"
+                           "- `!ticket unassign TICKET-XXXX @user` - unassign specific user (admin only)\n"
+                           "- `!ticket unassign TICKET-XXXX all` - unassign all assignees (admin only)")
             return
 
         # Get ticket by number
@@ -3367,7 +3366,7 @@ class TicketsHandler:
 
                 # Send notification to intake room if different from current room
                 if intake_room_id and not in_intake_room:
-                    await self._notify_intake_room(ticket, intake_plain_msg, mention_staff=False, html_message=intake_html_msg)
+                    await self._notify_ntn_room(ticket, intake_plain_msg, mention_staff=False, html_message=intake_html_msg)
 
                 # Send reply in current room (if not already covered by notifications)
                 if in_ticket_room:
@@ -3435,7 +3434,7 @@ class TicketsHandler:
 
                 # Send notification to intake room if different from current room
                 if intake_room_id and not in_intake_room:
-                    await self._notify_intake_room(ticket, intake_plain_msg, mention_staff=False, html_message=intake_html_msg)
+                    await self._notify_ntn_room(ticket, intake_plain_msg, mention_staff=False, html_message=intake_html_msg)
 
                 # Send reply in current room (if not already covered by notifications)
                 if in_ticket_room:
@@ -3499,7 +3498,7 @@ class TicketsHandler:
                 # Send notification to intake room if different from current room
                 if intake_room_id and not in_intake_room:
                     self.log.debug(f"Sending notification to intake room {intake_room_id} (not in intake room)")
-                    await self._notify_intake_room(ticket, intake_plain_msg, mention_staff=False, html_message=intake_html_msg)
+                    await self._notify_ntn_room(ticket, intake_plain_msg, mention_staff=False, html_message=intake_html_msg)
 
                 # Send reply in current room (if not already covered by notifications)
                 if in_ticket_room:
@@ -3514,8 +3513,8 @@ class TicketsHandler:
     async def ticket_close(self, evt: MessageEvent) -> None:
         self.log.info(f"Ticket close command triggered: {evt.content.body}")
 
-        # Block if in intake room (except allowed commands)
-        if await self._block_if_intake_room(evt):
+        # Block if in New Ticket Notification room (except allowed commands)
+        if await self._block_if_ntn_room(evt):
             return
 
         ticket = await self._ensure_ticket_room(evt)
@@ -3538,7 +3537,7 @@ class TicketsHandler:
             # Notify intake room
             notification_msg = f"🎫 Ticket **{ticket['ticket_number']}** \"{ticket['title']}\" closed"
             await evt.reply("✅ Ticket closed.")
-            await self._notify_intake_room(ticket, notification_msg, mention_staff=False)
+            await self._notify_ntn_room(ticket, notification_msg, mention_staff=False)
 
             # Make all users leave the room to signify closure
             ticket_room_id = ticket["ticket_room_id"]
@@ -3566,8 +3565,8 @@ class TicketsHandler:
     async def ticket_resolve(self, evt: MessageEvent) -> None:
         self.log.info(f"Ticket resolve command triggered: {evt.content.body}")
 
-        # Block if in intake room (except allowed commands)
-        if await self._block_if_intake_room(evt):
+        # Block if in New Ticket Notification room (except allowed commands)
+        if await self._block_if_ntn_room(evt):
             return
 
         ticket = await self._ensure_ticket_room(evt)
@@ -3590,7 +3589,7 @@ class TicketsHandler:
             # Notify intake room
             notification_msg = f"🎫 Ticket **{ticket['ticket_number']}** \"{ticket['title']}\" resolved"
             await evt.reply("✅ Ticket resolved.")
-            await self._notify_intake_room(ticket, notification_msg, mention_staff=False)
+            await self._notify_ntn_room(ticket, notification_msg, mention_staff=False)
 
             # Make all users leave the room to signify resolution
             ticket_room_id = ticket["ticket_room_id"]
@@ -3618,8 +3617,8 @@ class TicketsHandler:
     async def ticket_reopen(self, evt: MessageEvent) -> None:
         self.log.info(f"Ticket reopen command triggered: {evt.content.body}")
 
-        # Block if in intake room (except allowed commands)
-        if await self._block_if_intake_room(evt):
+        # Block if in New Ticket Notification room (except allowed commands)
+        if await self._block_if_ntn_room(evt):
             return
 
         ticket = await self._ensure_ticket_room(evt)
@@ -3641,7 +3640,7 @@ class TicketsHandler:
             # Notify intake room
             notification_msg = f"🎫 Ticket **{ticket['ticket_number']}** \"{ticket['title']}\" reopened"
             await evt.reply("✅ Ticket reopened.")
-            await self._notify_intake_room(ticket, notification_msg, mention_staff=False)
+            await self._notify_ntn_room(ticket, notification_msg, mention_staff=False)
         else:
             await evt.reply("❌ Failed to reopen ticket.")
 
@@ -3650,8 +3649,8 @@ class TicketsHandler:
     async def ticket_note(self, evt: MessageEvent, text: str) -> None:
         self.log.info(f"Ticket note command triggered: {evt.content.body}")
 
-        # Block if in intake room (except allowed commands)
-        if await self._block_if_intake_room(evt):
+        # Block if in New Ticket Notification room (except allowed commands)
+        if await self._block_if_ntn_room(evt):
             return
 
         ticket = await self._ensure_ticket_room(evt)
@@ -3674,8 +3673,8 @@ class TicketsHandler:
     async def ticket_info(self, evt: MessageEvent) -> None:
         self.log.info(f"Ticket info command triggered: {evt.content.body}")
 
-        # Block if in intake room (except allowed commands)
-        if await self._block_if_intake_room(evt):
+        # Block if in New Ticket Notification room (except allowed commands)
+        if await self._block_if_ntn_room(evt):
             return
 
         ticket = await self._ensure_ticket_room(evt)
@@ -3717,8 +3716,8 @@ class TicketsHandler:
     async def ticket_notes(self, evt: MessageEvent) -> None:
         self.log.info(f"Ticket notes command triggered: {evt.content.body}")
 
-        # Block if in intake room (except allowed commands)
-        if await self._block_if_intake_room(evt):
+        # Block if in New Ticket Notification room (except allowed commands)
+        if await self._block_if_ntn_room(evt):
             return
 
         ticket = await self._ensure_ticket_room(evt)
@@ -3747,8 +3746,8 @@ class TicketsHandler:
     async def ticket_delete(self, evt: MessageEvent, ticket_number: Optional[str] = None) -> None:
         self.log.info(f"Ticket delete command triggered: {evt.content.body}")
 
-        # Block if in intake room (except allowed commands)
-        if await self._block_if_intake_room(evt):
+        # Block if in New Ticket Notification room (except allowed commands)
+        if await self._block_if_ntn_room(evt):
             return
 
         ticket = None
@@ -3799,7 +3798,7 @@ class TicketsHandler:
 
         # Notify intake room
         notification_msg = f"🗑️ Ticket **{ticket_num}** \"{ticket_title}\" deleted"
-        await self._notify_intake_room(ticket, notification_msg, mention_staff=False)
+        await self._notify_ntn_room(ticket, notification_msg, mention_staff=False)
 
         # Try to leave/clean up the ticket room (optional)
         try:
@@ -3815,8 +3814,8 @@ class TicketsHandler:
     async def ticket_debug(self, evt: MessageEvent) -> None:
         self.log.info(f"Ticket debug command triggered: {evt.content.body}")
 
-        # Block if in intake room (except allowed commands)
-        if await self._block_if_intake_room(evt):
+        # Block if in New Ticket Notification room (except allowed commands)
+        if await self._block_if_ntn_room(evt):
             return
 
         if not await self.ensure_moderator(evt):
@@ -3866,7 +3865,7 @@ class TicketsHandler:
 
     @event.on(EventType.ROOM_MESSAGE)
     async def handle_pending_ticket(self, evt: MessageEvent) -> None:
-        """Handle pending ticket or intake room category selection."""
+        """Handle pending ticket or New Ticket Notification room category selection."""
         # Skip if message is a command (starts with !)
         body = evt.content.body.strip()
         if body.startswith("!"):
@@ -4041,7 +4040,7 @@ class TicketsHandler:
                     plain_mention, html_mention = self._format_user_mention(user_id)
                     plain_msg = f"🎫 Ticket **{ticket['ticket_number']}** \"{ticket['title']}\" auto-assigned to {plain_mention} (joined room)"
                     html_msg = f"🎫 Ticket <strong>{ticket['ticket_number']}</strong> \"{html.escape(ticket['title'])}\" auto-assigned to {html_mention} (joined room)"
-                    await self._notify_intake_room(ticket, plain_msg, mention_staff=False, html_message=html_msg)
+                    await self._notify_ntn_room(ticket, plain_msg, mention_staff=False, html_message=html_msg)
 
                     # Notify ticket room about assignment
                     try:
@@ -4121,7 +4120,7 @@ class TicketsHandler:
                     plain_mention, html_mention = self._format_user_mention(user_id)
                     plain_msg = f"🎫 Ticket **{ticket['ticket_number']}** \"{ticket['title']}\" auto-unassigned from {plain_mention} ({action} room)"
                     html_msg = f"🎫 Ticket <strong>{ticket['ticket_number']}</strong> \"{html.escape(ticket['title'])}\" auto-unassigned from {html_mention} ({html.escape(action)} room)"
-                    await self._notify_intake_room(ticket, plain_msg, mention_staff=False, html_message=html_msg)
+                    await self._notify_ntn_room(ticket, plain_msg, mention_staff=False, html_message=html_msg)
 
                     # Notify ticket room about unassignment
                     try:
@@ -4151,8 +4150,8 @@ class TicketsHandler:
         matching_intake_rooms = self.db.get_intake_rooms_for_category(category_id)
         if not matching_intake_rooms:
             await evt.reply(
-                "❌ No intake rooms are configured to receive notifications for this category.\n"
-                "Please notify an administrator to add an intake room for category "
+                 "❌ No New Ticket Notification rooms are configured to receive notifications for this category.\n"
+                 "Please notify an administrator to add a New Ticket Notification room for category "
                 f"`{category_id}` or `all`."
             )
             return
@@ -4322,20 +4321,20 @@ class TicketsHandler:
             await evt.reply("❌ Failed to create ticket. Please try again later.")
 
     async def _create_intake_room_from_pending(self, evt: MessageEvent, pending: dict) -> None:
-        """Create intake room from pending data (after category selection)."""
+        """Create New Ticket Notification room from pending data (after category selection)."""
         room_id = pending["room_id"]
         category_id = pending["category_id"]
 
         # Generate a name based on category
         if category_id == "all":
-            name = f"Intake Room (all categories)"
+            name = f"New Ticket Notification Room (all categories)"
         else:
             # Try to get category name for display
             category = self.db.get_category(category_id)
             if category:
-                name = f"Intake Room ({category['name']})"
+                name = f"New Ticket Notification Room ({category['name']})"
             else:
-                name = f"Intake Room ({category_id})"
+                name = f"New Ticket Notification Room ({category_id})"
 
         try:
             success = self.db.add_intake_room(room_id, name, category_id)
@@ -4366,8 +4365,8 @@ class TicketsHandler:
     async def ticket_help(self, evt: MessageEvent) -> None:
         self.log.info(f"Ticket help command triggered: {evt.content.body}")
 
-        # Block if in intake room (except allowed commands)
-        if await self._block_if_intake_room(evt):
+        # Block if in New Ticket Notification room (except allowed commands)
+        if await self._block_if_ntn_room(evt):
             return
 
         await self._show_help(evt)
