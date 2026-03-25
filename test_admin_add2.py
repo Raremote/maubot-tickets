@@ -38,7 +38,7 @@ async def test_admin_add():
     # Mock evt.reply
     mock_reply = AsyncMock()
     mock_evt = Mock()
-    mock_evt.content.body = "!ticket admin add"
+    mock_evt.content.body = "!ticket intake add"
     mock_evt.room_id = "!room:example.com"
     mock_evt.sender = "@user:example.com"
     mock_evt.reply = mock_reply

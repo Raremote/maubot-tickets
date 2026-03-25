@@ -379,7 +379,7 @@ class Database:
             
             if space_count > 1:
                 self.plugin.log.warning(f"get_ticket_space_id: {space_count} command rooms have spaces configured, selecting most recently created")
-                self.plugin.log.warning(f"To avoid confusion, consider clearing space configuration from unused command rooms with: !ticket admin command space clear (or clear all to clear from all command rooms)")
+                self.plugin.log.warning(f"To avoid confusion, consider clearing space configuration from unused command rooms with: !ticket command space clear (or clear all to clear from all command rooms)")
                 # List all spaces for debugging with creation dates
                 list_stmt = sa.select([self.command_rooms.c.space_id, self.command_rooms.c.room_id, self.command_rooms.c.created_at]).where(
                     sa.and_(
