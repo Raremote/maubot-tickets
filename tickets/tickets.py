@@ -2,7 +2,7 @@ import asyncio
 from typing import Optional
 from maubot import Plugin
 from .databases import Database
-from .listener import TicketsHandler
+from .listeners import TicketsHandler
 
 
 class TicketsPlugin(Plugin):
