@@ -285,7 +285,7 @@ This architecture improves maintainability and allows for easier extension.
 
 ## License
 
-GNU General Public License v3.0 (GPLv3) - see LICENSE file for details.
+GNU Affero General Public License v3.0 (AGPLv3) - see LICENSE file for details.
 
 ## Support
 
